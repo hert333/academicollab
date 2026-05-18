@@ -1,0 +1,14 @@
+# Root .gitignore
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+node_modules/
+dist/
+.DS_Store
+/backend/staticfiles/
+/backend/mediafiles/

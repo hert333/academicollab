@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: academicollab_db
+    environment:
+      POSTGRES_DB: academicollab
+      POSTGRES_USER: academic_admin
+      POSTGRES_PASSWORD: development_secure_password_123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - collab_network
+
+  backend:
+    build: ./backend
+    container_name: academicollab_backend
+    command: python manage.py runserver 0.0.0.0:8000
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - DEBUG=1
+      - DB_NAME=academicollab
+      - DB_USER=academic_admin
+      - DB_PASSWORD=development_secure_password_123
+      - DB_HOST=db
+      - DB_PORT=5432
+    depends_on:
+      - db
+    networks:
+      - collab_network
+
+  frontend:
+    build: ./frontend
+    container_name: academicollab_frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      - CHOKIDAR_USEPOLLING=true
+    depends_on:
+      - backend
+    networks:
+      - collab_network
+    stdin_open: true
+    tty: true
+
+networks:
+  collab_network:
+    driver: bridge
+
+volumes:
+  pg_data:
+    driver: local
