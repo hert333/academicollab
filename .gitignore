@@ -12,3 +12,4 @@ dist/
 .DS_Store
 /backend/staticfiles/
 /backend/mediafiles/
+backend/db.sqlite3
