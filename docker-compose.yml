@@ -1,59 +1,91 @@
+name: academicollab
 services:
+  backend:
+    build:
+      context: /home/heritier/academicollab/backend
+      dockerfile: Dockerfile
+    command:
+      - python
+      - manage.py
+      - runserver
+      - 0.0.0.0:8000
+    container_name: academicollab_backend
+    depends_on:
+      db:
+        condition: service_started
+        required: true
+    environment:
+      DB_HOST: db
+      DB_NAME: academicollab
+      DB_PASSWORD: development_secure_password_123
+      DB_PORT: "5432"
+      DB_USER: academic_admin
+      DEBUG: "1"
+    networks:
+      collab_network: null
+    ports:
+      - mode: ingress
+        target: 8000
+        published: "8000"
+        protocol: tcp
+    volumes:
+      - type: bind
+        source: /home/heritier/academicollab/backend
+        target: /app
+        bind: {}
+
   db:
-    image: postgres:16-alpine
     container_name: academicollab_db
     environment:
       POSTGRES_DB: academicollab
-      POSTGRES_USER: academic_admin
       POSTGRES_PASSWORD: development_secure_password_123
-    ports:
-      - "5432:5432"
-    volumes:
-      - pg_data:/var/lib/postgresql/data
+      POSTGRES_USER: academic_admin
+    image: postgres:16-alpine
     networks:
-      - collab_network
-
-  backend:
-    build: ./backend
-    container_name: academicollab_backend
-    command: python manage.py runserver 0.0.0.0:8000
-    volumes:
-      - ./backend:/app
+      collab_network: null
     ports:
-      - "8000:8000"
-    environment:
-      - DEBUG=1
-      - DB_NAME=academicollab
-      - DB_USER=academic_admin
-      - DB_PASSWORD=development_secure_password_123
-      - DB_HOST=db
-      - DB_PORT=5432
-    depends_on:
-      - db
-    networks:
-      - collab_network
+      - mode: ingress
+        target: 5432
+        published: "5432"
+        protocol: tcp
+    volumes:
+      - type: volume
+        source: pg_data
+        target: /var/lib/postgresql/data
+        volume: {}
 
   frontend:
-    build: ./frontend
+    build:
+      context: /home/heritier/academicollab/frontend
+      dockerfile: Dockerfile
     container_name: academicollab_frontend
-    volumes:
-      - ./frontend:/app
-      - /app/node_modules
-    ports:
-      - "3000:3000"
-    environment:
-      - CHOKIDAR_USEPOLLING=true
     depends_on:
-      - backend
+      backend:
+        condition: service_started
+        required: true
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
     networks:
-      - collab_network
+      collab_network: null
+    ports:
+      - mode: ingress
+        target: 3000
+        published: "3000"
+        protocol: tcp
     stdin_open: true
     tty: true
+    volumes:
+      - type: bind
+        source: /home/heritier/academicollab/frontend
+        target: /app
+        bind: {}
 
 networks:
   collab_network:
+    name: academicollab_collab_network
     driver: bridge
 
 volumes:
   pg_data:
+    name: academicollab_pg_data
     driver: local
