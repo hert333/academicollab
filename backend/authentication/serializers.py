@@ -8,7 +8,6 @@ class PermissionSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'codename']
 
 class RoleSerializer(serializers.ModelSerializer):
-    # Retrieve flat lists of all inherited permission objects up the tree hierarchy
     inherited_permissions = serializers.SerializerMethodField()
     subordinates_count = serializers.SerializerMethodField()
 
@@ -28,5 +27,26 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'role', 'role_details', 'is_active']
-        extra_kwargs = {'password': {'write_only': True}}
+        # FIXED: Added explicit 'password' field mapping to the context fields list
+        fields = ['id', 'username', 'email', 'password', 'role', 'role_details', 'is_active']
+        extra_kwargs = {
+            'password': {'write_only': True, 'style': {'input_type': 'password'}}
+        }
+
+    def create(self, validated_data):
+        # FIXED: Strips out plain strings and invokes Django's secure hashing abstraction layer
+        password = validated_data.pop('password', None)
+        user = super().create(validated_data)
+        if password:
+            user.set_password(password)
+            user.save()
+        return user
+
+    def update(self, instance, validated_data):
+        # FIXED: Protects existing instances from plaintext password overrides during modifications
+        password = validated_data.pop('password', None)
+        user = super().update(instance, validated_data)
+        if password:
+            user.set_password(password)
+            user.save()
+        return user

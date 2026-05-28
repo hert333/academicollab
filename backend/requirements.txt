@@ -1,4 +1,23 @@
-django>=5.0,<5.1
-djangorestframework>=3.15,<3.16
-django-cors-headers>=4.3,<4.4
-psycopg2-binary>=2.9,<2.10
+# Core Framework & Routing Engine
+Django==5.0.6
+
+# API Construction & Hierarchical Serialization Engine
+djangorestframework==3.15.1
+
+# Cross-Origin Resource Sharing Coordination Middleware
+django-cors-headers==4.3.1
+
+# Secure JSON Web Token Sliding Authentication Architecture
+djangorestframework-simplejwt==5.3.1
+
+# Robust PostgreSQL Database Engine Layer Adapter
+psycopg2-binary==2.9.9
+
+# Production-Grade Multi-Threaded WSGI Server Container Environment
+gunicorn==22.0.0
+
+# FIXED: Appended core task distribution engine
+celery==5.5.3
+
+# FIXED: Appended key-value network layer transport adapter for Redis coordination
+redis==5.0.4

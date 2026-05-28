@@ -1,26 +1,25 @@
 name: academicollab
+
 services:
   backend:
     build:
-      context: /home/heritier/academicollab/backend
+      context: ./backend
       dockerfile: Dockerfile
-    command:
-      - python
-      - manage.py
-      - runserver
-      - 0.0.0.0:8000
+    # REFACTORED COMMAND: Chains database migration execution before initiating server binding
+    command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
     container_name: academicollab_backend
     depends_on:
       db:
         condition: service_started
         required: true
     environment:
-      DB_HOST: db
-      DB_NAME: academicollab
-      DB_PASSWORD: development_secure_password_123
-      DB_PORT: "5432"
-      DB_USER: academic_admin
-      DEBUG: "1"
+      SECRET_KEY: ${SECRET_KEY}
+      DEBUG: ${DEBUG}
+      DB_HOST: ${DB_HOST}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_PORT: ${DB_PORT}
     networks:
       collab_network: null
     ports:
@@ -30,17 +29,17 @@ services:
         protocol: tcp
     volumes:
       - type: bind
-        source: /home/heritier/academicollab/backend
+        source: ./backend
         target: /app
         bind: {}
 
   db:
     container_name: academicollab_db
-    environment:
-      POSTGRES_DB: academicollab
-      POSTGRES_PASSWORD: development_secure_password_123
-      POSTGRES_USER: academic_admin
     image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     networks:
       collab_network: null
     ports:
@@ -56,7 +55,7 @@ services:
 
   frontend:
     build:
-      context: /home/heritier/academicollab/frontend
+      context: ./frontend
       dockerfile: Dockerfile
     container_name: academicollab_frontend
     depends_on:
@@ -64,7 +63,7 @@ services:
         condition: service_started
         required: true
     environment:
-      CHOKIDAR_USEPOLLING: "true"
+      - NODE_ENV=development
     networks:
       collab_network: null
     ports:
@@ -76,9 +75,10 @@ services:
     tty: true
     volumes:
       - type: bind
-        source: /home/heritier/academicollab/frontend
+        source: ./frontend
         target: /app
-        bind: {}
+      - type: volume
+        target: /app/node_modules
 
 networks:
   collab_network:
