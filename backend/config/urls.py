@@ -14,4 +14,5 @@ urlpatterns = [
     
     # Core Application Context Endpoint Tree Matrix Mapping Layer
     path('api/', include('authentication.urls')), 
+    path('api/coordination/', include('coordination.urls')),
 ]

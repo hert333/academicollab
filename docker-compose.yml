@@ -1,91 +1,118 @@
 name: academicollab
 
-services:
-  backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    # REFACTORED COMMAND: Chains database migration execution before initiating server binding
-    command: sh -c "python manage.py migrate --noinput && python manage.py runserver 0.0.0.0:8000"
-    container_name: academicollab_backend
-    depends_on:
-      db:
-        condition: service_started
-        required: true
-    environment:
-      SECRET_KEY: ${SECRET_KEY}
-      DEBUG: ${DEBUG}
-      DB_HOST: ${DB_HOST}
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_PORT: ${DB_PORT}
-    networks:
-      collab_network: null
-    ports:
-      - mode: ingress
-        target: 8000
-        published: "8000"
-        protocol: tcp
-    volumes:
-      - type: bind
-        source: ./backend
-        target: /app
-        bind: {}
 
+services:
+  # Database Storage Component
   db:
+    image: postgres:15-alpine
     container_name: academicollab_db
-    image: postgres:16-alpine
     environment:
       POSTGRES_DB: ${DB_NAME}
       POSTGRES_USER: ${DB_USER}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
-    networks:
-      collab_network: null
-    ports:
-      - mode: ingress
-        target: 5432
-        published: "5432"
-        protocol: tcp
     volumes:
-      - type: volume
-        source: pg_data
-        target: /var/lib/postgresql/data
-        volume: {}
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - academicollab_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
+  # FIXED: Injected Redis cache broker service dependency
+  redis:
+    image: redis:7-alpine
+    container_name: academicollab_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - academicollab_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Django Core Application Node
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: academicollab_backend
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - DEBUG=${DEBUG}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+    networks:
+      - academicollab_net
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # FIXED: Injected dedicated Celery background compute service processing engine
+  celery_worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: academicollab_celery_worker
+    # Override standard web gunicorn payload execution step to run the background worker daemon loop instead
+    command: celery -A config worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    environment:
+      - SECRET_KEY=${SECRET_KEY}
+      - DEBUG=${DEBUG}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS}
+      - DB_NAME=${DB_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=db
+      - DB_PORT=5432
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    networks:
+      - academicollab_net
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # React Frontend Dashboard Node
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: academicollab_frontend
-    depends_on:
-      backend:
-        condition: service_started
-        required: true
-    environment:
-      - NODE_ENV=development
-    networks:
-      collab_network: null
-    ports:
-      - mode: ingress
-        target: 3000
-        published: "3000"
-        protocol: tcp
-    stdin_open: true
-    tty: true
     volumes:
-      - type: bind
-        source: ./frontend
-        target: /app
-      - type: volume
-        target: /app/node_modules
-
-networks:
-  collab_network:
-    name: academicollab_collab_network
-    driver: bridge
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "3000:3000"
+    networks:
+      - academicollab_net
 
 volumes:
-  pg_data:
-    name: academicollab_pg_data
-    driver: local
+  postgres_data:
+
+# Declared isolated local driver cluster network mesh framework mapping coordinates
+networks:
+  academicollab_net:
+    driver: bridge

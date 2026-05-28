@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     
     # Local Apps
     'authentication',
+    'coordination',
 ]
 
 MIDDLEWARE = [
