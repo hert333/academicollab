@@ -6,14 +6,43 @@ on:
   pull_request:
     branches: [ main, master, develop ]
 
+# FIXED: Mitigate resource consumption and block concurrent mutation race conditions
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# FIXED: Explicitly restrict execution tokens to read-only access to isolate runtime environments
+permissions:
+  contents: read
+
 jobs:
   backend-ci:
-    name: Backend Build & Security Scan
+    name: Backend Test, Build & Security Scan
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      # FIXED: Added Python runtime validation phase to catch code logic errors before containerization
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+          cache-dependency-path: ./backend/requirements.txt
+
+      # FIXED: Cache pip packages to optimize continuous runner validation cycles
+      - name: Install Runtime Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      # FIXED: Enforce backend testing pass; fails build immediately if Django models or logic break
+      - name: Run Backend Unit Tests
+        run: |
+          cd backend
+          python manage.py test --noinput
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -24,27 +53,47 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           tags: academicollab-backend:latest
-          load: true # Loads image into local Docker daemon for testing/scanning
+          load: true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # CRITICAL FIXED: Remediated CVE-2026-33634 by upgrading to known-safe v0.35.0 container scanning baseline
       - name: Run Trivy Vulnerability Scanner
-        uses: aquasec/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: 'academicollab-backend:latest'
           format: 'table'
-          exit-code: '1' # Fails the build pipeline if vulnerabilities match criteria
+          exit-code: '1'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
 
   frontend-ci:
-    name: Frontend Build & Security Scan
+    name: Frontend Test, Build & Security Scan
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      # FIXED: Integrated Node.js execution mapping for early front-end failure detection
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ./frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci
+
+      # FIXED: Prevent bad UI components or broken compilation parameters from bypassing code limits
+      - name: Run Frontend Unit Tests
+        run: |
+          cd frontend
+          npm test -- --watchAll=false --passWithNoTests
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -59,8 +108,9 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # CRITICAL FIXED: Exited supply-chain compromise path by using standardized target references
       - name: Run Trivy Vulnerability Scanner
-        uses: aquasec/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: 'academicollab-frontend:latest'
           format: 'table'
