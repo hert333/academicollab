@@ -1,17 +1,17 @@
 # Core Framework & Routing Engine
-Django==5.0.6
+Django==5.1.15
 
 # API Construction & Hierarchical Serialization Engine
-djangorestframework==3.15.1
+djangorestframework==3.15.2
 
 # Cross-Origin Resource Sharing Coordination Middleware
 django-cors-headers==4.3.1
 
 # Secure JSON Web Token Sliding Authentication Architecture
-djangorestframework-simplejwt==5.3.1
+djangorestframework-simplejwt==5.5.1
 
 # Robust PostgreSQL Database Engine Layer Adapter
-psycopg2-binary==2.9.9
+psycopg2-binary>=2.9.9
 
 # Production-Grade Multi-Threaded WSGI Server Container Environment
 gunicorn==22.0.0
@@ -21,3 +21,6 @@ celery==5.5.3
 
 # FIXED: Appended key-value network layer transport adapter for Redis coordination
 redis==5.0.4
+# Secure dependency pinning targeting CVE-2026-23949 and CVE-2026-24049
+jaraco.context==6.1.0
+wheel==0.46.2

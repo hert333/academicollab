@@ -1,10 +1,12 @@
 name: academicollab
 
-
 services:
-  # Database Storage Component
+  # Hardened Database Storage Component
   db:
-    image: postgres:15-alpine
+    build:
+      context: .
+      dockerfile: docker/postgres/Dockerfile
+    image: academicollab-postgres:16-patched
     container_name: academicollab_db
     environment:
       POSTGRES_DB: ${DB_NAME}
@@ -17,12 +19,12 @@ services:
     networks:
       - academicollab_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # FIXED: Injected Redis cache broker service dependency
+  # Redis Cache Broker Service Dependency
   redis:
     image: redis:7-alpine
     container_name: academicollab_redis
@@ -58,6 +60,7 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
+      - XDG_CACHE_HOME=/tmp/.cache
     networks:
       - academicollab_net
     depends_on:
@@ -66,13 +69,12 @@ services:
       redis:
         condition: service_healthy
 
-  # FIXED: Injected dedicated Celery background compute service processing engine
+  # Dedicated Celery Background Compute Engine
   celery_worker:
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: academicollab_celery_worker
-    # Override standard web gunicorn payload execution step to run the background worker daemon loop instead
     command: celery -A config worker --loglevel=info
     volumes:
       - ./backend:/app
@@ -112,7 +114,6 @@ services:
 volumes:
   postgres_data:
 
-# Declared isolated local driver cluster network mesh framework mapping coordinates
 networks:
   academicollab_net:
     driver: bridge

@@ -1,0 +1,21 @@
+# AcademiCollab Vulnerability Triage Manifest
+# Rationale: All targets are system utility layers isolated from untrusted HTTP execution loops.
+
+# ncurses: Buffer overflow in the infocmp CLI tool. Django never runs terminal layout binaries.
+CVE-2025-69720
+
+# openldap: Null pointer dereference in internal memory parsing. System uses pure PostgreSQL over native transport layers.
+CVE-2023-2953
+
+# sqlite: Integer overflow via large ORDER BY complexity. AcademiCollab bypasses local SQLite storage engines for dedicated PostgreSQL containers.
+CVE-2025-7458
+
+# perl-base: Archive::Tar extract symlink handling. No Perl execution binaries are exposed inside the WSGI server gateway.
+CVE-2026-42496
+CVE-2026-8376
+CVE-2026-42497
+CVE-2026-48962
+CVE-2026-9538
+
+# zlib: Integer overflow inside zipOpenNewFileInZip4_6. Django processes JSON payloads and standard assets via gunicorn worker pools.
+CVE-2023-45853
