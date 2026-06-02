@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import API from '../services/api';
 
-// FIXED: Harmonized option targets with absolute backend database keys
+// Harmonized option targets matching absolute backend database keys
 const ROLE_OPTIONS = ['Student', 'Project Manager', 'Supervisor', 'Admin'];
 
 export default function RoleManagementDashboard() {
@@ -44,9 +44,9 @@ export default function RoleManagementDashboard() {
       setError(null);
       setSuccessMessage(null);
 
-      // FIXED: Swapped out non-existent custom action for standard RESTful resource route
-      const response = await API.patch(`users/${userId}/`, {
-        role_name: targetRole, // Explicit string name mapping for downstream serialization engines
+      // RESTful structural data exchange payload submission
+      await API.patch(`users/${userId}/`, {
+        role_name: targetRole, // Explicit string mapping for serialization engines
       });
 
       // Optimistic client array update matching real-time synchronization states
@@ -66,78 +66,88 @@ export default function RoleManagementDashboard() {
 
   if (loading) {
     return (
-      <div style={{ padding: '30px', fontFamily: 'sans-serif', color: '#666' }}>
-        <h3>Loading System Identity Tree Matrix...</h3>
+      <div className="p-8 text-slate-400 bg-slate-950 min-h-screen font-sans flex items-center">
+        <div className="flex items-center gap-3">
+          <div className="w-4 h-4 rounded-full border-2 border-indigo-500 border-t-transparent animate-spin"></div>
+          <h3 className="text-sm font-medium">Hydrating System Identity Tree Matrix...</h3>
+        </div>
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '40px', fontFamily: 'sans-serif', backgroundColor: '#f9f9f9', minHeight: '100vh' }}>
-      <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <h2 style={{ color: '#1a1a1a', borderBottom: '2px solid #eaeaea', paddingBottom: '15px' }}>
-          Hierarchical Role Management Console
-        </h2>
+    <div className="space-y-6 animate-fade-in font-sans">
+      {/* View Header Matrix */}
+      <div>
+        <h1 className="text-2xl font-bold tracking-tight text-white mb-1">Hierarchical Role Management Console</h1>
+        <p className="text-xs text-slate-400">Map security privileges, modify group access tiers, and manage RBAC tokens across system profiles.</p>
+      </div>
 
-        {error && (
-          <div style={{ padding: '15px', backgroundColor: '#ffebe9', color: '#ce3c2e', borderRadius: '6px', marginBottom: '20px', border: '1px solid #ffc8c4' }}>
-            <strong>System Error:</strong> {error}
-          </div>
-        )}
+      {/* Execution Diagnostics Notification Hub */}
+      {error && (
+        <div className="p-4 bg-rose-950/40 border border-rose-900/60 text-rose-400 rounded-lg text-xs font-medium flex items-center gap-2">
+          <span className="font-bold uppercase tracking-wider text-[10px] bg-rose-900/50 px-1.5 py-0.5 rounded">System Error</span>
+          {error}
+        </div>
+      )}
 
-        {successMessage && (
-          <div style={{ padding: '15px', backgroundColor: '#e6f6ec', color: '#1f7a42', borderRadius: '6px', marginBottom: '20px', border: '1px solid #c3edd5' }}>
-            <strong>Status Check:</strong> {successMessage}
-          </div>
-        )}
+      {successMessage && (
+        <div className="p-4 bg-emerald-950/40 border border-emerald-900/60 text-emerald-400 rounded-lg text-xs font-medium flex items-center gap-2">
+          <span className="font-bold uppercase tracking-wider text-[10px] bg-emerald-900/50 px-1.5 py-0.5 rounded">Status Check</span>
+          {successMessage}
+        </div>
+      )}
 
-        <div style={{ backgroundColor: '#ffffff', borderRadius: '8px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', overflow: 'hidden' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+      {/* High-Contrast Management Grid Layout */}
+      <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shadow-2xl">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
             <thead>
-              <tr style={{ backgroundColor: '#f1f3f5', color: '#495057', borderBottom: '1px solid #dee2e6' }}>
-                <th style={{ padding: '15px' }}>User ID</th>
-                <th style={{ padding: '15px' }}>Identity / Profile</th>
-                <th style={{ padding: '15px' }}>Email Contact</th>
-                <th style={{ padding: '15px' }}>Assigned Hierarchical Role</th>
-                <th style={{ padding: '15px' }}>Access Control Adjustments</th>
+              <tr className="border-b border-slate-800 bg-slate-900/50 text-[11px] font-bold uppercase tracking-wider text-slate-400 select-none">
+                <th className="py-4 px-6">User ID</th>
+                <th className="py-4 px-6">Identity / Profile</th>
+                <th className="py-4 px-6">Email Contact</th>
+                <th className="py-4 px-6">Assigned Hierarchical Role</th>
+                <th className="py-4 px-6 text-right">Access Control Adjustments</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-800/60 text-sm text-slate-300">
               {users.map((user) => {
                 const currentRole = user.role_details?.name || user.role || 'Unassigned';
+                const isPending = actionPendingId === user.id;
+
                 return (
-                  <tr key={user.id} style={{ borderBottom: '1px solid #f1f3f5', transition: 'background 0.2s' }}>
-                    <td style={{ padding: '15px', fontWeight: 'bold', color: '#666' }}>#{user.id}</td>
-                    <td style={{ padding: '15px', color: '#212529', fontWeight: '500' }}>{user.username}</td>
-                    <td style={{ padding: '15px', color: '#495057' }}>{user.email}</td>
-                    <td style={{ padding: '15px' }}>
-                      <span style={{ 
-                        padding: '6px 12px', 
-                        borderRadius: '20px', 
-                        fontSize: '12px', 
-                        fontWeight: 'bold',
-                        backgroundColor: currentRole === 'Admin' || currentRole === 'Supervisor' ? '#fde8e8' : currentRole === 'Project Manager' ? '#e1effe' : '#e5e7eb',
-                        color: currentRole === 'Admin' || currentRole === 'Supervisor' ? '#9b1c1c' : currentRole === 'Project Manager' ? '#1e429f' : '#374151'
-                      }}>
+                  <tr 
+                    key={user.id} 
+                    className={`hover:bg-slate-800/20 transition-colors duration-150 ${
+                      isPending ? 'opacity-40 pointer-events-none bg-indigo-950/10' : ''
+                    }`}
+                  >
+                    <td className="py-4 px-6 font-mono text-xs text-slate-500 font-bold">#{user.id}</td>
+                    <td className="py-4 px-6 font-semibold text-white">{user.username}</td>
+                    <td className="py-4 px-6 text-slate-400 font-mono text-xs">{user.email}</td>
+                    <td className="py-4 px-6">
+                      <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wide border ${
+                        currentRole === 'Admin' || currentRole === 'Supervisor' 
+                          ? 'bg-rose-950/40 text-rose-400 border-rose-900/60' 
+                          : currentRole === 'Project Manager' 
+                            ? 'bg-indigo-950/40 text-indigo-400 border-indigo-900/60' 
+                            : 'bg-slate-950 text-slate-400 border-slate-800'
+                      }`}>
                         {currentRole}
                       </span>
                     </td>
-                    <td style={{ padding: '15px' }}>
+                    <td className="py-4 px-6 text-right">
                       <select
                         value={currentRole}
-                        disabled={actionPendingId === user.id}
+                        disabled={isPending}
                         onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                        style={{
-                          padding: '8px 12px',
-                          borderRadius: '6px',
-                          border: '1px solid #ccd0d4',
-                          backgroundColor: actionPendingId === user.id ? '#e9ecef' : '#ffffff',
-                          cursor: actionPendingId === user.id ? 'not-allowed' : 'pointer',
-                          outline: 'none'
-                        }}
+                        className={`bg-slate-950 border border-slate-800 text-xs text-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:border-indigo-500 transition-all font-medium select-none ${
+                          isPending ? 'cursor-not-allowed opacity-50 bg-slate-900' : 'cursor-pointer hover:border-slate-700'
+                        }`}
                       >
                         {ROLE_OPTIONS.map((opt) => (
-                          <option key={opt} value={opt}>
+                          <option key={opt} value={opt} className="bg-slate-950 text-slate-300">
                             Assign {opt} Permissions
                           </option>
                         ))}
@@ -146,9 +156,10 @@ export default function RoleManagementDashboard() {
                   </tr>
                 );
               })}
+
               {users.length === 0 && !error && (
                 <tr>
-                  <td colSpan="5" style={{ padding: '30px', textAlign: 'center', color: '#868e96' }}>
+                  <td colSpan="5" className="py-12 px-6 text-center text-xs text-slate-500 font-medium select-none">
                     Zero user registrations detected in database context.
                   </td>
                 </tr>

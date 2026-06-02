@@ -15,4 +15,7 @@ urlpatterns = [
     # Core Application Context Endpoint Tree Matrix Mapping Layer
     path('api/', include('authentication.urls')), 
     path('api/coordination/', include('coordination.urls')),
+
+    # NEW: Mount the Kanban architecture application paths here
+    path('api/kanban/', include('kanban.urls')),
 ]
