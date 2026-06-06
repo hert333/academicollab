@@ -15,13 +15,11 @@ export const AuthProvider = ({ children }) => {
         return;
       }
       try {
-        const response = await API.get('auth/user-profile/', {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        // Headers are injected automatically by the intercepted client instance
+        const response = await API.get('auth/user-profile/');
         setUser(response.data);
       } catch (err) {
         console.error("Hydration state verification failed:", err.response?.data || err.message);
-        // Defer complete eviction handling down to the unified interceptor layer
         logout();
       } finally {
         setLoading(false);
@@ -39,14 +37,11 @@ export const AuthProvider = ({ children }) => {
 
     const { access, refresh } = response.data;
     
-    // FIXED: Capturing and persisting the full token payload tuple
     localStorage.setItem('access_token', access);
     localStorage.setItem('refresh_token', refresh);
     
     try {
-      const profileResponse = await API.get('auth/user-profile/', {
-        headers: { Authorization: `Bearer ${access}` }
-      });
+      const profileResponse = await API.get('auth/user-profile/');
       setUser(profileResponse.data);
       return profileResponse.data; 
     } catch (profileError) {
@@ -56,7 +51,6 @@ export const AuthProvider = ({ children }) => {
   };
 
   const logout = () => {
-    // FIXED: Ensured both storage values are evicted cleanly during logout cycles
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     setUser(null);

@@ -3,32 +3,59 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ValidationError, PermissionDenied
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.db import transaction
 
 from authentication.models import Role, User
 from authentication.serializers import RoleSerializer, UserSerializer
 
+# Absolute hierarchical authority map used for RBAC calculations
+ROLE_RANKING = {
+    'Student': 1,
+    'Project Manager': 2,
+    'Supervisor': 3,
+    'Admin': 4,
+}
+
+def get_identity_rank(user) -> int:
+    """
+    Safely resolves the numeric permission rank of the user context.
+    Ensures strict fallback behaviors for unassigned profiles.
+    """
+    if not user or not user.is_authenticated:
+        return 0
+    if user.is_superuser:
+        return ROLE_RANKING['Admin']
+    if hasattr(user, 'role') and user.role:
+        return ROLE_RANKING.get(user.role.name, ROLE_RANKING['Student'])
+    return ROLE_RANKING['Student']
+
+
 class IsSupervisorOrAdmin(permissions.BasePermission):
     """
-    RBAC Authorization Gateway.
-    Permits read diagnostics, but blocks modification paths 
-    unless the identity context resolves to a Supervisor or Administrator node.
+    Hierarchical RBAC Authorization Engine.
+    Permits read diagnostics across endpoints, but blocks modification paths 
+    unless the identity context meets or exceeds the Supervisor tier.
     """
     def has_permission(self, request, view):
         if request.method in permissions.SAFE_METHODS:
             return True
-        
-        if not request.user or not request.user.is_authenticated or not request.user.role:
-            return False
-            
-        return request.user.role.name in ['Supervisor', 'Admin'] or request.user.is_superuser
+        return get_identity_rank(request.user) >= ROLE_RANKING['Supervisor']
+
+
+class IsProjectManagerOrHigher(permissions.BasePermission):
+    """
+    Granular Access Guard for workflow coordination layouts.
+    Blocks access for baseline Student tokens.
+    """
+    def has_permission(self, request, view):
+        return get_identity_rank(request.user) >= ROLE_RANKING['Project Manager']
 
 
 class UserProfileView(APIView):
     """
-    Zero-Trust Profile Resolution Layer. Explicitly bound to JWT token authentication.
+    Zero-Trust Profile Resolution Layer explicitly bound to verified JWT contexts.
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -39,6 +66,9 @@ class UserProfileView(APIView):
 
 
 class RoleViewSet(viewsets.ModelViewSet):
+    """
+    Administrative Role Definition Controller.
+    """
     queryset = Role.objects.all()
     serializer_class = RoleSerializer
     permission_classes = [IsAuthenticated, IsSupervisorOrAdmin]
@@ -46,7 +76,7 @@ class RoleViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'], url_path='subordinates-tree')
     def subordinates_tree(self, request, pk=None):
         """
-        Recursively traverses down through all nested organizational layers.
+        Recursively traverses organizational node paths.
         """
         root_role = self.get_object()
         
@@ -58,46 +88,65 @@ class RoleViewSet(viewsets.ModelViewSet):
                 "subordinates": [build_tree(sub) for sub in subordinates]
             }
             
-        tree_data = build_tree(root_role)
-        return Response(tree_data, status=status.HTTP_200_OK)
+        return Response(build_tree(root_role), status=status.HTTP_200_OK)
 
 
 class UserViewSet(viewsets.ModelViewSet):
-    # OPTIMIZATION: Prefetch roles to minimize database queries (N+1 query problem prevention)
+    """
+    Identity Management Controller with transactional role mutation safeguards.
+    """
     queryset = User.objects.all().select_related('role')
     serializer_class = UserSerializer
     permission_classes = [IsAuthenticated, IsSupervisorOrAdmin]
 
+    def _assert_mutation_authority(self, request, current_instance=None):
+        """
+        Enforces strict separation of duties.
+        Blocks non-Admin users from making explicit role assignment changes.
+        """
+        # Scan incoming payload for role adjustments
+        if 'role' in request.data:
+            new_role_val = request.data.get('role')
+            
+            # Determine if operation modifies an existing role state
+            if current_instance:
+                current_role_id = current_instance.role.id if current_instance.role else None
+                try:
+                    is_changed = (new_role_val is not None and int(new_role_val) != current_role_id) or \
+                                 (new_role_val is None and current_role_id is not None)
+                except (ValueError, TypeError):
+                    is_changed = True
+            else:
+                # For creation paths, check if any non-null role is being assigned
+                is_changed = new_role_val is not None
+
+            if is_changed and get_identity_rank(request.user) < ROLE_RANKING['Admin']:
+                raise ValidationError({
+                    "role": "Privilege Escalation Blocked: Only System Administrators hold authorization to assign or modify user role values."
+                })
+
     @transaction.atomic
     def create(self, request, *args, **kwargs):
         """
-        Intercepts creation to ensure only Admin profiles can assign roles to new users.
+        Intercepts user creation requests to block unauthorized role assignments.
         """
-        if 'role' in request.data and request.data['role'] is not None:
-            if not self._is_system_admin(request.user):
-                raise ValidationError({"role": "Privilege Escalation Blocked: Only System Administrators can assign user roles."})
+        self._assert_mutation_authority(request, current_instance=None)
         return super().create(request, *args, **kwargs)
 
     @transaction.atomic
     def update(self, request, *args, **kwargs):
         """
-        Protects existing user records from unauthorized role modification.
+        Intercepts standard PUT requests to block unauthorized role adjustments.
         """
         instance = self.get_object()
-        
-        if 'role' in request.data:
-            new_role_id = request.data.get('role')
-            current_role_id = instance.role.id if instance.role else None
-            
-            # If the role integer ID is altered, assert administrative authorization clearing
-            if new_role_id is not None and int(new_role_id) != current_role_id:
-                if not self._is_system_admin(request.user):
-                    raise ValidationError({"role": "Privilege Escalation Blocked: Only System Administrators can alter user roles."})
-                    
+        self._assert_mutation_authority(request, current_instance=instance)
         return super().update(request, *args, **kwargs)
 
-    def _is_system_admin(self, user):
+    @transaction.atomic
+    def partial_update(self, request, *args, **kwargs):
         """
-        Evaluates the authorization level of the user context.
+        Intercepts PATCH requests to close the partial update security vulnerability.
         """
-        return user.is_superuser or (hasattr(user, 'role') and user.role and user.role.name == 'Admin')
+        instance = self.get_object()
+        self._assert_mutation_authority(request, current_instance=instance)
+        return super().partial_update(request, *args, **kwargs)

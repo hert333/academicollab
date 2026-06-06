@@ -47,6 +47,9 @@ INSTALLED_APPS = [
     'authentication',
     'coordination',
     'kanban',
+    'kanban_board',
+    'workspace',
+
 ]
 
 MIDDLEWARE = [
@@ -109,7 +112,7 @@ SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,  # FIXED: Changed to True to mitigate token replay attack surface vectors
+    'BLACKLIST_AFTER_ROTATION': True,  # Enforced to mitigate token replay attack surface vectors
     'UPDATE_LAST_LOGIN': False,
     'ALGORITHM': 'HS256',
     'SIGNING_KEY': SECRET_KEY,
@@ -127,6 +130,7 @@ SIMPLE_JWT = {
     'TOKEN_TYPE_CLAIM': 'token_type',
     'TOKEN_USER_CLASS': 'rest_framework_simplejwt.models.TokenUser',
     'JTI_CLAIM': 'jti',
+    'TOKEN_OBTAIN_PAIR_SERIALIZER': 'authentication.serializers.CustomTokenObtainPairSerializer',
 }
 
 # FIXED: Celery Asynchronous Engine Namespace Broker Specifications

@@ -2,7 +2,6 @@ import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
-// FIXED: Harmonized architecture roles with backend seed structures
 const ROLE_HIERARCHY = {
   'Student': 1,
   'Project Manager': 2,
@@ -21,13 +20,10 @@ const ProtectedRoute = ({ allowedRoles }) => {
     return <Navigate to="/login" replace />;
   }
 
-  // Handle extraction safely across nested or raw object serializations
   const userRoleString = user.role_details?.name || user.role;
   const userWeight = ROLE_HIERARCHY[userRoleString] || 0;
   
-  // FIXED: Validates permissions dynamically via exact matches or explicit hierarchical weights
   const hasAccess = allowedRoles.some(role => {
-    // Grant unconditional bypass to root administrators
     if (userRoleString === 'Admin' || userRoleString === 'Supervisor') return true;
     
     const requiredWeight = ROLE_HIERARCHY[role] || 0;

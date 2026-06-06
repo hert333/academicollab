@@ -1,29 +1,31 @@
 import axios from 'axios';
 
+// Leverage Vite environment variable schema with safe local network fallback configuration
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+
 const API = axios.create({
-  baseURL: 'http://localhost:8000/api/',
+  baseURL: `${API_BASE_URL}/api/`,
   timeout: 5000,
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-// Mutex lock configurations to protect concurrent thread/asynchronous pipelines
 let isRefreshing = false;
 let failedQueue = [];
 
 const processQueue = (error, token = null) => {
-  failedQueue.forEach((prom) => {
+  failedQueue.forEach((promise) => {
     if (error) {
-      prom.reject(error);
+      promise.reject(error);
     } else {
-      prom.resolve(token);
+      promise.resolve(token);
     }
   });
   failedQueue = [];
 };
 
-// Structural Interceptor for automatic JWT token payload distribution
+// Request Interceptor: Uniformly inject active authorization vector states
 API.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
@@ -35,24 +37,21 @@ API.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-// FIXED: Asynchronous Response Interceptor for sliding token refresh execution
+// Response Interceptor: Manage sliding window token rotation and request queue holding
 API.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
 
-    // Guard statement: Check if error is not a 401 or if request has already been retried
     if (error.response?.status !== 401 || originalRequest._retry) {
       return Promise.reject(error);
     }
 
-    // Guard statement: Avoid infinite looping if the refresh endpoint itself rejects
     if (originalRequest.url.includes('auth/token/refresh/')) {
       return Promise.reject(error);
     }
 
     if (isRefreshing) {
-      // Queue requests while token generation runs concurrently
       return new Promise((resolve, reject) => {
         failedQueue.push({ resolve, reject });
       })
@@ -72,8 +71,8 @@ API.interceptors.response.use(
         throw new Error('Refresh token asset omitted from client storage.');
       }
 
-      // Bypass instance interceptors by utilizing direct axios call to prevent locking deadlocks
-      const response = await axios.post('http://localhost:8000/api/auth/token/refresh/', {
+      // Explicit isolated instance configuration prevents cascading interceptor recursion
+      const response = await axios.post(`${API_BASE_URL}/api/auth/token/refresh/`, {
         refresh: refreshToken,
       });
 
@@ -87,11 +86,9 @@ API.interceptors.response.use(
     } catch (refreshError) {
       processQueue(refreshError, null);
       
-      // Evict corrupted/expired tokens to drop state cleanly back to portal landing zones
       localStorage.removeItem('access_token');
       localStorage.removeItem('refresh_token');
       
-      // Force page relocation if active context binding drops completely
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }

@@ -18,4 +18,5 @@ urlpatterns = [
 
     # NEW: Mount the Kanban architecture application paths here
     path('api/kanban/', include('kanban.urls')),
+    path('api/workspace/', include('workspace.urls')),
 ]
