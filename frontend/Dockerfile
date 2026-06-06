@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package*.json ./
 
 # FIXED: Swapped out loose install for npm ci to enforce exact package-lock structural alignment
-RUN npm ci
+RUN npm install
 
 COPY . .
 

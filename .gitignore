@@ -13,3 +13,25 @@ dist/
 /backend/staticfiles/
 /backend/mediafiles/
 backend/db.sqlite3
+
+# Technical Identity Guards
+.env
+.env.local
+*.env
+secrets.json
+# Backend Python/Django Context 
+__pycache__/
+*.pyc
+db.sqlite3
+/media/
+/static/
+
+# Frontend Node Dependencies
+node_modules/
+dist/
+.eslintcache
+
+# DevOps Docker runtime volumes
+.postgres_data/
+pgdata/
+*.log
