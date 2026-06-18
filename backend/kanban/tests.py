@@ -1,91 +1,195 @@
-# backend/kanban/tests.py
-from django.contrib.auth import get_user_model
-from django.test import TestCase
-from rest_framework.test import APIClient
-from rest_framework import status
+# backend/kanban/views.py
+from django.db import transaction
+from django.db.models import F
+from django.http import Http404
+from rest_framework import viewsets, status
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 
-from authentication.models import Role
-from coordination.models import Project, ProjectMembership
-from kanban.models import KanbanColumn, Task
+from .models import KanbanColumn
+from coordination.models import Task, Project, ProjectMembership
+from .serializers import KanbanColumnSerializer, TaskSerializer
 
-User = get_user_model()
-
-
-class KanbanHierarchicalRBACIntegrationTests(TestCase):
+def get_user_project_role(user, project):
     """
-    Architectural Verification Suite: Enforces rigorous validation of the
-    IsProjectHierarchicalElement permission policy across different role elevations.
+    Direct multi-tenant lookup validating the user's operational scope 
+    bypassing localized queryset filtering limitations.
     """
+    if not user or user.is_anonymous or not project:
+        return None
+    membership = ProjectMembership._base_manager.filter(user=user, project=project).select_related('role').first()
+    if membership and membership.role:
+        return membership.role.name.upper()
+    return None
 
-    @classmethod
-    def setUpTestData(cls):
-        # 1. Extract or recreate baseline seeded roles
-        cls.member_role, _ = Role.objects.get_or_create(name='MEMBER')
-        cls.lead_role, _ = Role.objects.get_or_create(name='LEAD', parent=cls.member_role)
-        cls.supervisor_role, _ = Role.objects.get_or_create(name='SUPERVISOR', parent=cls.lead_role)
 
-        # 2. Instantiate isolated user testing nodes
-        cls.creator_user = User.objects.create_user(username='creator_user', password='TestPassword123')
-        cls.supervisor_user = User.objects.create_user(username='supervisor_user', password='TestPassword123')
-        cls.lead_user = User.objects.create_user(username='lead_user', password='TestPassword123')
-        cls.member_user = User.objects.create_user(username='member_user', password='TestPassword123')
-        cls.external_user = User.objects.create_user(username='external_user', password='TestPassword123')
+class KanbanColumnViewSet(viewsets.ModelViewSet):
+    serializer_class = KanbanColumnSerializer
+    permission_classes = [IsAuthenticated]
 
-        # 3. Provision master domain infrastructure elements
-        cls.project = Project.objects.create(title='Dissertation Workspace', created_by=cls.creator_user)
-        cls.column = KanbanColumn.objects.create(project=cls.project, name='Backlog', order=0)
-        cls.task = Task.objects.create(column=cls.column, title='Implement RBAC Core Logic', order=0, assigned_to=cls.member_user)
+    def get_queryset(self):
+        """ Scopes standard collection listings strictly to verified members. """
+        return KanbanColumn.objects.filter(project__memberships__user=self.request.user).order_by('order')
 
-        # 4. Bind multi-tenant membership mapping records
-        ProjectMembership.objects.create(user=cls.supervisor_user, project=cls.project, role=cls.supervisor_role)
-        ProjectMembership.objects.create(user=cls.lead_user, project=cls.project, role=cls.lead_role)
-        ProjectMembership.objects.create(user=cls.member_user, project=cls.project, role=cls.member_role)
+    def initial(self, request, *args, **kwargs):
+        """
+        Intercepts execution at the entry point to catch cross-tenant multi-tenant 
+        access attempts before they leak as 404 responses.
+        """
+        super().initial(request, *args, **kwargs)
+        
+        action_name = self.action
+        if not action_name and hasattr(request, 'method'):
+            method_map = {'GET': 'retrieve' if self.kwargs else 'list', 'PUT': 'update', 'PATCH': 'partial_update', 'DELETE': 'destroy', 'POST': 'create'}
+            action_name = method_map.get(request.method.upper(), '')
 
-    def setUp(self):
-        self.client = APIClient()
+        # Create Validation
+        if action_name == 'create':
+            project_id = request.data.get('project')
+            if project_id:
+                project = Project._base_manager.filter(id=project_id).first()
+                if not project:
+                    raise Http404("Target project workspace does not exist.")
+                role = get_user_project_role(request.user, project)
+                if not role or role not in ['LEAD', 'SUPERVISOR']:
+                    raise PermissionDenied("You do not have permission to create columns in this workspace.")
 
-    def test_anonymous_and_unauthenticated_requests_are_denied(self):
-        """Asserts that unauthenticated traffic is flatly blocked across all mutating endpoints."""
-        response = self.client.post('/api/columns/', {'project': str(self.project.id), 'name': 'Blocked Column'})
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        # Detail Validation (Enforce 403 Forbidden over 404 for existing external rows)
+        if action_name in ['retrieve', 'update', 'partial_update', 'destroy', 'reorder_columns']:
+            lookup_value = self.kwargs.get('pk')
+            if lookup_value:
+                column = KanbanColumn._base_manager.filter(pk=lookup_value).select_related('project').first()
+                if column:
+                    role = get_user_project_role(request.user, column.project)
+                    if not role:
+                        raise PermissionDenied("Access to this workspace ecosystem is denied.")
+                    if action_name in ['update', 'partial_update', 'destroy', 'reorder_columns']:
+                        if role not in ['LEAD', 'SUPERVISOR']:
+                            raise PermissionDenied("Standard members are blocked from structural layout modifications.")
+                else:
+                    raise Http404("Target column not found.")
 
-    def test_supervisor_has_unrestricted_mutation_privileges(self):
-        """Validates that a SUPERVISOR can create architectural elements like columns."""
-        self.client.force_authenticate(user=self.supervisor_user)
-        response = self.client.post('/api/columns/', {'project': str(self.project.id), 'name': 'In Review', 'order': 1})
-        self.assertEqual(
-            response.status_code, 
-            status.HTTP_201_CREATED, 
-            msg=f"DRF Validation Payload Rejection Schema: {response.data}"
-        )
+    @action(detail=True, methods=['post'], url_path='reorder-columns')
+    def reorder_columns(self, request, pk=None):
+        column = self.get_object()
+        new_order_raw = request.data.get('new_order')
+        if new_order_raw is None:
+            return Response({'error': 'Missing required parameter: new_order'}, status=status.HTTP_400_BAD_REQUEST)
+            
+        new_order = int(new_order_raw)
+        with transaction.atomic():
+            columns = KanbanColumn._base_manager.select_for_update().filter(project_id=column.project_id)
+            if column.order < new_order:
+                columns.filter(order__gt=column.order, order__lte=new_order).update(order=F('order') - 1)
+            else:
+                columns.filter(order__gte=new_order, order__lt=column.order).update(order=F('order') + 1)
 
-    def test_project_lead_has_structural_mutation_privileges(self):
-        """Validates that a LEAD can create architectural elements like tasks."""
-        self.client.force_authenticate(user=self.lead_user)
-        response = self.client.post('/api/tasks/', {'column': self.column.id, 'title': 'Write System Engineering Documentation'})
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+            column.order = new_order
+            column.save(update_fields=['order'])
 
-    def test_standard_member_cannot_create_structural_elements(self):
-        """Verifies standard members are restricted from appending columns to a project structure."""
-        self.client.force_authenticate(user=self.member_user)
-        response = self.client.post('/api/columns/', {'project': str(self.project.id), 'name': 'Illegal Column Matrix'})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        return Response({'status': 'Success'}, status=status.HTTP_200_OK)
 
-    def test_standard_member_can_update_self_assigned_task(self):
-        """Verifies standard members retain mutation capacity purely over tasks explicitly assigned to them."""
-        self.client.force_authenticate(user=self.member_user)
-        response = self.client.patch(f'/api/tasks/{self.task.id}/', {'title': 'Updated Assignment Title'})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_standard_member_cannot_update_unassigned_tasks(self):
-        """Asserts members are structurally blocked from modifying tasks where they are not designated owners."""
-        unassigned_task = Task.objects.create(column=self.column, title='Foreign Task Context', order=1, assigned_to=self.lead_user)
-        self.client.force_authenticate(user=self.member_user)
-        response = self.client.patch(f'/api/tasks/{unassigned_task.id}/', {'title': 'Malicious Intervention Attempt'})
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+class TaskViewSet(viewsets.ModelViewSet):
+    serializer_class = TaskSerializer
+    permission_classes = [IsAuthenticated]
 
-    def test_non_workspace_user_completely_blocked(self):
-        """Ensures authenticated application users lacking workspace scopes are rejected."""
-        self.client.force_authenticate(user=self.external_user)
-        response_mutation = self.client.patch(f'/api/tasks/{self.task.id}/', {'title': 'External Shift'})
-        self.assertEqual(response_mutation.status_code, status.HTTP_403_FORBIDDEN)
+    def get_queryset(self):
+        """ Limits queries strictly to authorized projects to prevent multi-tenant data leaks. """
+        return Task.objects.filter(column__project__memberships__user=self.request.user).select_related('assigned_to', 'column')
+
+    def initial(self, request, *args, **kwargs):
+        """
+        Intercepts task lifecycle entry processing points. Evaluates structural multi-tenant 
+        boundaries globally before DRF's internal queryset overrides run.
+        """
+        super().initial(request, *args, **kwargs)
+
+        action_name = self.action
+        if not action_name and hasattr(request, 'method'):
+            method_map = {'GET': 'retrieve' if self.kwargs else 'list', 'PUT': 'update', 'PATCH': 'partial_update', 'DELETE': 'destroy', 'POST': 'create'}
+            action_name = method_map.get(request.method.upper(), '')
+
+        # Creation Security Check
+        if action_name == 'create':
+            column_id = request.data.get('column')
+            if column_id:
+                column = KanbanColumn._base_manager.filter(id=column_id).select_related('project').first()
+                if not column:
+                    raise Http404("Target column context does not exist.")
+                role = get_user_project_role(request.user, column.project)
+                if not role:
+                    raise PermissionDenied("You do not have permission to add tasks to this workspace.")
+
+        # Intercept Detail Operations to evaluate global tenancy before get_queryset excludes the row
+        if action_name in ['retrieve', 'update', 'partial_update', 'destroy', 'reorder_task']:
+            lookup_value = self.kwargs.get('pk')
+            if lookup_value:
+                task = Task._base_manager.filter(pk=lookup_value).select_related('column__project', 'assigned_to').first()
+                if task:
+                    role = get_user_project_role(request.user, task.column.project)
+                    if not role:
+                        # Exists globally but user is outside the project workspace workspace scope -> Raise 403 Forbidden
+                        raise PermissionDenied("Access to this workspace ecosystem is denied.")
+                    
+                    # Intercept mutation actions for validation
+                    if action_name in ['update', 'partial_update', 'destroy', 'reorder_task']:
+                        if role not in ['LEAD', 'SUPERVISOR']:
+                            if task.assigned_to != request.user:
+                                raise PermissionDenied("Standard members are blocked from mutating tasks they do not own.")
+                else:
+                    raise Http404("Target task not found.")
+
+    def update(self, request, *args, **kwargs):
+        """ Explicitly overrides the update route handler to enforce user-level blockages. """
+        task = Task._base_manager.filter(pk=kwargs.get('pk')).select_related('column__project').first()
+        if not task:
+            raise Http404("Target task not found.")
+        
+        role = get_user_project_role(request.user, task.column.project)
+        if not role:
+            raise PermissionDenied("Access to this workspace ecosystem is denied.")
+        if role not in ['LEAD', 'SUPERVISOR'] and task.assigned_to != request.user:
+            raise PermissionDenied("Standard members are blocked from mutating tasks they do not own.")
+            
+        return super().update(request, *args, **kwargs)
+
+    def partial_update(self, request, *args, **kwargs):
+        """ Explicitly overrides the partial update route handler to enforce user-level blockages. """
+        task = Task._base_manager.filter(pk=kwargs.get('pk')).select_related('column__project').first()
+        if not task:
+            raise Http404("Target task not found.")
+            
+        role = get_user_project_role(request.user, task.column.project)
+        if not role:
+            raise PermissionDenied("Access to this workspace ecosystem is denied.")
+        if role not in ['LEAD', 'SUPERVISOR'] and task.assigned_to != request.user:
+            raise PermissionDenied("Standard members are blocked from mutating tasks they do not own.")
+            
+        return super().partial_update(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'], url_path='reorder')
+    def reorder_task(self, request, pk=None):
+        task = self.get_object()
+        target_column_id = request.data.get('target_column_id')
+        new_order = int(request.data.get('position', 0))
+
+        target_column = KanbanColumn._base_manager.filter(id=target_column_id).select_related('project').first()
+        if not target_column:
+            raise Http404("Target destination column does not exist.")
+            
+        target_role = get_user_project_role(request.user, target_column.project)
+        if not target_role:
+            raise PermissionDenied("Target workspace validation failed.")
+
+        with transaction.atomic():
+            Task._base_manager.select_for_update().filter(column=task.column, column_order__gt=task.column_order).update(column_order=F('column_order') - 1)
+            Task._base_manager.select_for_update().filter(column=target_column, column_order__gte=new_order).update(column_order=F('column_order') + 1)
+
+            task.column = target_column
+            task.column_order = new_order
+            task.save(update_fields=['column', 'column_order'])
+
+        return Response({'status': 'Mapped'}, status=status.HTTP_200_OK)

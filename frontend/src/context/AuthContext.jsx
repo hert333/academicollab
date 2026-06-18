@@ -1,31 +1,50 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+// frontend/src/context/AuthContext.jsx
+import React, { createContext, useState, useEffect, useContext } from 'react';
 import API from '../services/api';
 
-const AuthContext = createContext(null);
+export const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const logout = () => {
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    setUser(null);
+  };
+
   useEffect(() => {
+    let isMounted = true;
+
     const verifyUser = async () => {
       const token = localStorage.getItem('access_token');
       if (!token) {
-        setLoading(false);
+        if (isMounted) setLoading(false);
         return;
       }
       try {
-        // Headers are injected automatically by the intercepted client instance
         const response = await API.get('auth/user-profile/');
-        setUser(response.data);
+        if (isMounted) {
+          setUser(response.data);
+        }
       } catch (err) {
         console.error("Hydration state verification failed:", err.response?.data || err.message);
-        logout();
+        if (isMounted) {
+          logout();
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     };
+
     verifyUser();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const login = async (username, password) => {
@@ -41,19 +60,17 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('refresh_token', refresh);
     
     try {
-      const profileResponse = await API.get('auth/user-profile/');
+      const profileResponse = await API.get('auth/user-profile/', {
+        headers: {
+          Authorization: `Bearer ${access}`
+        }
+      });
       setUser(profileResponse.data);
       return profileResponse.data; 
     } catch (profileError) {
       logout();
       throw profileError;
     }
-  };
-
-  const logout = () => {
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
-    setUser(null);
   };
 
   return (
@@ -69,4 +86,13 @@ export const AuthProvider = ({ children }) => {
   );
 };
 
-export const useAuth = () => useContext(AuthContext);
+// =========================================================================
+// CRITICAL IMPLEMENTATION PATCH: EXPORT NAMED HOOK FOR DECOUPLED VIEWS
+// =========================================================================
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be executed within an explicit AuthProvider wrapper boundary.');
+  }
+  return context;
+};

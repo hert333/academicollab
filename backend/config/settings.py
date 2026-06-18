@@ -47,7 +47,6 @@ INSTALLED_APPS = [
     'authentication',
     'coordination',
     'kanban',
-    'kanban_board',
     'workspace',
 
 ]

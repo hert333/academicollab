@@ -31,13 +31,11 @@ export default function Login() {
       const sessionProfile = await login(sanitizedUsername, sanitizedPassword);
       
       if (sessionProfile && sessionProfile.role_details) {
-        // FIXED: Dynamic landing zone mapping aligned with backend operational nodes
         const roleName = sessionProfile.role_details.name;
         
         if (roleName === 'Supervisor' || roleName === 'Admin') {
           navigate('/admin/roles', { replace: true });
         } else {
-          // Default fallbacks for operational tiers (PM / Student dashboards)
           navigate('/dashboard', { replace: true });
         }
       } else {

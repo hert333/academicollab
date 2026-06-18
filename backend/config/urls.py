@@ -1,22 +1,17 @@
+# backend/config/urls.py
 from django.contrib import admin
 from django.urls import path, include
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     
-    # SimpleJWT Native Token Validation Endpoints
-    path('api/auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # Unified domain mapping. The frontend expects 'auth/', not 'authentication/'.
+    path('api/auth/', include('authentication.urls')), 
     
-    # Core Application Context Endpoint Tree Matrix Mapping Layer
-    path('api/', include('authentication.urls')), 
-    path('api/coordination/', include('coordination.urls')),
-
-    # NEW: Mount the Kanban architecture application paths here
-    path('api/kanban/', include('kanban.urls')),
-    path('api/workspace/', include('workspace.urls')),
+    # Kanban taskboard workflows route directly to the coordination application layer
+    path('api/kanban/', include('coordination.urls')),
+    
+    # ALIGNED: Redirect coordination layout queries straight to the workspace tracking app
+    path('api/coordination/', include('workspace.urls')),
+    path('api/workspace/', include('workspace.urls')),  # Kept as fallback protection
 ]

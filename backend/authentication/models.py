@@ -1,7 +1,9 @@
+# backend/authentication/models.py
 from django.db import models
 from django.contrib.auth.models import AbstractUser, Permission, BaseUserManager
 from django.core.exceptions import ValidationError
 from django.apps import apps
+
 
 class CustomUserManager(BaseUserManager):
     """
@@ -28,7 +30,8 @@ class CustomUserManager(BaseUserManager):
 
         try:
             RoleModel = apps.get_model('authentication', 'Role')
-            admin_role = RoleModel.objects.filter(name__icontains='admin').first() or RoleModel.objects.first()
+            # Look up normalized absolute uppercase key explicitly
+            admin_role = RoleModel.objects.filter(name='ADMIN').first() or RoleModel.objects.first()
             if admin_role:
                 extra_fields.setdefault('role', admin_role)
         except (LookupError, Exception):
@@ -38,6 +41,9 @@ class CustomUserManager(BaseUserManager):
 
 
 class Role(models.Model):
+    """
+    Represents a system role within a directed acyclic graph (DAG) structure.
+    """
     name = models.CharField(max_length=50, unique=True)
     parent = models.ForeignKey(
         'self', 
@@ -69,6 +75,11 @@ class Role(models.Model):
                 visited.add(current_parent.pk)
             current_parent = current_parent.parent
 
+    def save(self, *args, **kwargs):
+        """Intercepts saving events to guarantee full execution of loop validation limits."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
     def get_ancestor_ids(self):
         """
         Traverses hierarchy in-memory via foreign key caches to collect ancestor IDs.
@@ -87,23 +98,15 @@ class Role(models.Model):
         return ancestor_ids
 
     def get_all_permissions(self):
-        """
-        FIXED: Contract Requirement for the Serialization layer.
-        Resolves and returns a distinct QuerySet of concrete Permission object instances 
-        inherited through the role lineage graph.
-        """
+        """Resolves distinct QuerySet of Permission object instances inherited through lineage."""
         ancestor_ids = self.get_ancestor_ids()
         return Permission.objects.filter(role__id__in=ancestor_ids).distinct()
 
     def get_all_permissions_strings(self):
-        """
-        Flattens permission query evaluation. Compiles exact 'app_label.codename' 
-        strings using a single batch database transaction.
-        """
+        """Flattens permission query evaluation into a set of 'app_label.codename' fields."""
         ancestor_ids = self.get_ancestor_ids()
         return set(
             Permission.objects.filter(role__id__in=ancestor_ids)
-            .values_list('content_type__app_label', 'codename')
             .annotate(full_perm=models.functions.Concat(
                 'content_type__app_label', models.Value('.'), 'codename'
             ))
@@ -112,6 +115,7 @@ class Role(models.Model):
 
 
 class User(AbstractUser):
+    """Custom user model integrating the hierarchical global system role."""
     role = models.ForeignKey(
         Role, 
         on_delete=models.PROTECT, 
@@ -123,24 +127,15 @@ class User(AbstractUser):
     objects = CustomUserManager()
 
     def has_perm(self, perm, obj=None):
-        """
-        Evaluates qualified authentication checks ('app_label.codename') against 
-        the flattened hierarchical role array.
-        """
         if not self.is_active:
             return False
         if self.is_superuser:
             return True
         if not self.role:
             return False
-
         return perm in self.role.get_all_permissions_strings()
 
     def has_module_perms(self, app_label):
-        """
-        Required override ensuring Django Administrative interface maps access controls 
-        accurately against hierarchical structures.
-        """
         if not self.is_active:
             return False
         if self.is_superuser:

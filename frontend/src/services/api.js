@@ -1,3 +1,4 @@
+// frontend/src/services/api.js
 import axios from 'axios';
 
 // Leverage Vite environment variable schema with safe local network fallback configuration
@@ -5,7 +6,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
 
 const API = axios.create({
   baseURL: `${API_BASE_URL}/api/`,
-  timeout: 5000,
+  timeout: 10000,
   headers: {
     'Content-Type': 'application/json'
   }
@@ -29,7 +30,13 @@ const processQueue = (error, token = null) => {
 API.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('access_token');
-    if (token) {
+    
+    if (!config.headers) {
+      config.headers = {};
+    }
+    
+    // Inject global bearer token safely if not explicitly overridden by an atomic call
+    if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
     }
     return config;
@@ -43,11 +50,15 @@ API.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status !== 401 || originalRequest._retry) {
+    // Guard Clause: Pass through non-401 or already retried requests immediately
+    if (!error.response || error.response.status !== 401 || originalRequest._retry) {
       return Promise.reject(error);
     }
 
-    if (originalRequest.url.includes('auth/token/refresh/')) {
+    const requestUrl = originalRequest.url || '';
+
+    // Safety fallback: Prevent interceptor recursion loops during core authentication
+    if (requestUrl.endsWith('auth/token/') || requestUrl.endsWith('auth/token/refresh/')) {
       return Promise.reject(error);
     }
 
@@ -71,7 +82,7 @@ API.interceptors.response.use(
         throw new Error('Refresh token asset omitted from client storage.');
       }
 
-      // Explicit isolated instance configuration prevents cascading interceptor recursion
+      // Explicit isolated instance configuration prevents cascading interceptor recursion loops
       const response = await axios.post(`${API_BASE_URL}/api/auth/token/refresh/`, {
         refresh: refreshToken,
       });
@@ -86,17 +97,27 @@ API.interceptors.response.use(
     } catch (refreshError) {
       processQueue(refreshError, null);
       
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
-      
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login';
+      // Prevent data clearing loops if the initial request was parsing user metadata
+      if (!requestUrl.includes('auth/user-profile/')) {
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
       }
+      
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;
     }
   }
 );
+
+// =========================================================================
+// WORKSPACE EXTENSION MODULE: ENFORCE DECOUPLED MULTI-TENANT ACTIONS
+// =========================================================================
+export const getWorkspaces = () => API.get('coordination/workspaces/');
+export const createWorkspace = (data) => API.post('coordination/workspaces/', data);
 
 export default API;

@@ -1,5 +1,15 @@
+# backend/workspace/serializers.py
 from rest_framework import serializers
-from .models import Project, Task
+from django.contrib.auth import get_user_model
+from .models import Workspace, Project, Task
+
+User = get_user_model()
+
+class UserMinimalSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email']
+
 
 class TaskSerializer(serializers.ModelSerializer):
     assigned_to_username = serializers.ReadOnlyField(source='assigned_to.username')
@@ -34,5 +44,18 @@ class ProjectSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Project
-        fields = ['id', 'name', 'description', 'created_by', 'created_by_username', 'created_at', 'tasks']
+        fields = ['id', 'workspace', 'name', 'description', 'created_by', 'created_by_username', 'created_at', 'tasks']
         read_only_fields = ['id', 'created_by', 'created_at']
+
+
+class WorkspaceSerializer(serializers.ModelSerializer):
+    """
+    Serializes top-level partitions. Mounts nested projects to provide clear UI data binding pathways.
+    """
+    projects = ProjectSerializer(many=True, read_only=True)
+    created_by_detail = UserMinimalSerializer(source='created_by', read_only=True)
+
+    class Meta:
+        model = Workspace
+        fields = ['id', 'name', 'description', 'created_by', 'created_by_detail', 'created_at', 'updated_at', 'projects']
+        read_only_fields = ['id', 'created_by', 'created_by_detail', 'created_at', 'updated_at']
